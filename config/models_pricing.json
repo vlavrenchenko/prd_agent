@@ -1,0 +1,356 @@
+{
+  "currency": "USD",
+  "unit": "per_1m_tokens",
+  "updated_at": "2026-04-24",
+  "source": "OpenAI official API pricing and model pages",
+  "defaults": {
+    "billing_note": "Bill input, cached input, and output tokens separately. Output includes reasoning tokens when applicable.",
+    "standard_context": "short_context_unless_specified"
+  },
+  "models": {
+    "gpt-4o": {
+      "family": "gpt-4o",
+      "type": "flagship",
+      "pricing": {
+        "standard": {
+          "input": 2.50,
+          "cached_input": 1.25,
+          "output": 10.0
+        }
+      }
+    },
+    "gpt-4o-mini": {
+      "family": "gpt-4o",
+      "type": "mini",
+      "pricing": {
+        "standard": {
+          "input": 0.15,
+          "cached_input": 0.075,
+          "output": 0.60
+        }
+      }
+    },
+    "gpt-4-turbo": {
+      "family": "gpt-4",
+      "type": "turbo",
+      "pricing": {
+        "standard": {
+          "input": 10.0,
+          "cached_input": null,
+          "output": 30.0
+        }
+      }
+    },
+    "o1": {
+      "family": "o1",
+      "type": "flagship",
+      "pricing": {
+        "standard": {
+          "input": 15.0,
+          "cached_input": 7.5,
+          "output": 60.0
+        }
+      }
+    },
+    "o1-mini": {
+      "family": "o1",
+      "type": "mini",
+      "pricing": {
+        "standard": {
+          "input": 3.0,
+          "cached_input": 1.5,
+          "output": 12.0
+        }
+      }
+    },
+    "o3-mini": {
+      "family": "o3",
+      "type": "mini",
+      "pricing": {
+        "standard": {
+          "input": 1.10,
+          "cached_input": 0.55,
+          "output": 4.40
+        }
+      }
+    },
+    "gpt-5.1": {
+      "family": "gpt-5.1",
+      "type": "flagship",
+      "modalities": {
+        "input": ["text", "image"],
+        "output": ["text"]
+      },
+      "pricing": {
+        "standard": {
+          "input": 1.25,
+          "cached_input": 0.125,
+          "output": 10.0
+        }
+      },
+      "aliases_or_snapshots": ["gpt-5.1", "gpt-5.1-2025-11-13"]
+    },
+    "gpt-5.1-chat-latest": {
+      "family": "gpt-5.1",
+      "type": "chat",
+      "modalities": {
+        "input": ["text", "image"],
+        "output": ["text"]
+      },
+      "pricing": {
+        "standard": {
+          "input": 1.25,
+          "cached_input": 0.125,
+          "output": 10.0
+        }
+      },
+      "aliases_or_snapshots": ["gpt-5.1-chat-latest"]
+    },
+    "gpt-5.1-codex": {
+      "family": "gpt-5.1",
+      "type": "codex",
+      "modalities": {
+        "input": ["text", "image"],
+        "output": ["text"]
+      },
+      "pricing": {
+        "standard": {
+          "input": 1.25,
+          "cached_input": 0.125,
+          "output": 10.0
+        }
+      },
+      "availability_note": "Responses API only according to model page",
+      "aliases_or_snapshots": ["gpt-5.1-codex"]
+    },
+    "gpt-5.1-codex-max": {
+      "family": "gpt-5.1",
+      "type": "codex_max",
+      "modalities": {
+        "input": ["text", "image"],
+        "output": ["text"]
+      },
+      "pricing": {
+        "standard": {
+          "input": 1.25,
+          "cached_input": 0.125,
+          "output": 10.0
+        }
+      },
+      "availability_note": "Responses API only according to model page",
+      "aliases_or_snapshots": ["gpt-5.1-codex-max"]
+    },
+    "gpt-5.1-codex-mini": {
+      "family": "gpt-5.1",
+      "type": "codex_mini",
+      "modalities": {
+        "input": ["text", "image"],
+        "output": ["text"]
+      },
+      "pricing": {
+        "standard": {
+          "input": 0.25,
+          "cached_input": 0.025,
+          "output": 2.0
+        }
+      },
+      "aliases_or_snapshots": ["gpt-5.1-codex-mini"]
+    },
+    "gpt-5.2": {
+      "family": "gpt-5.2",
+      "type": "flagship",
+      "modalities": {
+        "input": ["text", "image"],
+        "output": ["text"]
+      },
+      "pricing": {
+        "standard": {
+          "input": 1.75,
+          "cached_input": 0.175,
+          "output": 14.0
+        }
+      },
+      "aliases_or_snapshots": ["gpt-5.2", "gpt-5.2-2025-12-11"]
+    },
+    "gpt-5.2-chat-latest": {
+      "family": "gpt-5.2",
+      "type": "chat",
+      "modalities": {
+        "input": ["text", "image"],
+        "output": ["text"]
+      },
+      "pricing": {
+        "standard": {
+          "input": 1.75,
+          "cached_input": 0.175,
+          "output": 14.0
+        }
+      },
+      "aliases_or_snapshots": ["gpt-5.2-chat-latest"]
+    },
+    "gpt-5.2-codex": {
+      "family": "gpt-5.2",
+      "type": "codex",
+      "modalities": {
+        "input": ["text", "image"],
+        "output": ["text"]
+      },
+      "pricing": {
+        "standard": {
+          "input": 1.75,
+          "cached_input": 0.175,
+          "output": 14.0
+        }
+      },
+      "aliases_or_snapshots": ["gpt-5.2-codex"]
+    },
+    "gpt-5.2-pro": {
+      "family": "gpt-5.2",
+      "type": "pro",
+      "modalities": {
+        "input": ["text", "image"],
+        "output": ["text"]
+      },
+      "pricing": {
+        "standard": {
+          "input": 21.0,
+          "cached_input": null,
+          "output": 168.0
+        }
+      },
+      "availability_note": "Responses API only according to model page",
+      "aliases_or_snapshots": ["gpt-5.2-pro", "gpt-5.2-pro-2025-12-11"]
+    },
+    "gpt-5.3-chat-latest": {
+      "family": "gpt-5.3",
+      "type": "chat",
+      "modalities": {
+        "input": ["text", "image"],
+        "output": ["text"]
+      },
+      "pricing": {
+        "standard": {
+          "input": 1.75,
+          "cached_input": 0.175,
+          "output": 14.0
+        }
+      },
+      "aliases_or_snapshots": ["gpt-5.3-chat-latest"]
+    },
+    "gpt-5.3-codex": {
+      "family": "gpt-5.3",
+      "type": "codex",
+      "modalities": {
+        "input": ["text", "image"],
+        "output": ["text"]
+      },
+      "pricing": {
+        "standard": {
+          "input": 1.75,
+          "cached_input": 0.175,
+          "output": 14.0
+        },
+        "priority": {
+          "input": 3.5,
+          "cached_input": 0.35,
+          "output": 28.0
+        }
+      },
+      "aliases_or_snapshots": ["gpt-5.3-codex"]
+    },
+    "gpt-5.4": {
+      "family": "gpt-5.4",
+      "type": "flagship",
+      "modalities": {
+        "input": ["text", "image"],
+        "output": ["text"]
+      },
+      "pricing": {
+        "standard": {
+          "short_context": {
+            "input": 2.5,
+            "cached_input": 0.25,
+            "output": 15.0
+          },
+          "long_context": {
+            "input": 5.0,
+            "cached_input": 0.5,
+            "output": 22.5
+          }
+        }
+      },
+      "regional_processing_uplift": 0.10,
+      "aliases_or_snapshots": ["gpt-5.4", "gpt-5.4-2026-03-05"]
+    },
+    "gpt-5.4-mini": {
+      "family": "gpt-5.4",
+      "type": "mini",
+      "modalities": {
+        "input": ["text", "image"],
+        "output": ["text"]
+      },
+      "pricing": {
+        "standard": {
+          "short_context": {
+            "input": 0.75,
+            "cached_input": 0.075,
+            "output": 4.5
+          }
+        }
+      },
+      "regional_processing_uplift": 0.10,
+      "aliases_or_snapshots": ["gpt-5.4-mini", "gpt-5.4-mini-2026-03-17"]
+    },
+    "gpt-5.4-nano": {
+      "family": "gpt-5.4",
+      "type": "nano",
+      "modalities": {
+        "input": ["text", "image"],
+        "output": ["text"]
+      },
+      "pricing": {
+        "standard": {
+          "short_context": {
+            "input": 0.2,
+            "cached_input": 0.02,
+            "output": 1.25
+          }
+        }
+      },
+      "regional_processing_uplift": 0.10,
+      "aliases_or_snapshots": ["gpt-5.4-nano", "gpt-5.4-nano-2026-03-17"]
+    },
+    "gpt-5.4-pro": {
+      "family": "gpt-5.4",
+      "type": "pro",
+      "modalities": {
+        "input": ["text", "image"],
+        "output": ["text"]
+      },
+      "pricing": {
+        "standard": {
+          "short_context": {
+            "input": 30.0,
+            "cached_input": null,
+            "output": 180.0
+          }
+        }
+      },
+      "regional_processing_uplift": 0.10,
+      "aliases_or_snapshots": ["gpt-5.4-pro", "gpt-5.4-pro-2026-03-05"]
+    },
+    "gpt-5.5": {
+      "family": "gpt-5.5",
+      "type": "flagship",
+      "status": "coming_soon",
+      "pricing": {
+        "standard": {
+          "input": 5.0,
+          "cached_input": 0.5,
+          "output": 30.0
+        }
+      },
+      "note": "Listed by OpenAI as coming soon, not necessarily available for API use yet."
+    }
+  }
+}

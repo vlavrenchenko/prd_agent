@@ -1,0 +1,10 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+data/prd_output/
+.ipynb_checkpoints/
+chroma_db/
+*.db
+logs/
