@@ -1,4 +1,5 @@
 .env
+BACKLOG.md
 .venv/
 __pycache__/
 *.pyc
