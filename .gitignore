@@ -1,5 +1,6 @@
 .env
 BACKLOG.md
+BRAINSTORM*.md
 .venv/
 __pycache__/
 *.pyc
