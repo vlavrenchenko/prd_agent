@@ -33,6 +33,15 @@ def _load_criteria() -> dict:
     return json.loads(CRITERIA_PATH.read_text(encoding="utf-8"))
 
 
+def _clamp_scores(scores: dict, criteria: list) -> dict:
+    """Обрезает баллы до максимума по каждому критерию."""
+    max_per_criterion = {c["id"]: c["max"] for c in criteria}
+    return {
+        key: min(int(val), max_per_criterion.get(key, val))
+        for key, val in scores.items()
+    }
+
+
 def _load_prices() -> dict:
     if not PRICING_PATH.exists():
         return {}
@@ -124,7 +133,7 @@ def critique_prd(prd_text: str) -> dict:
     _log_cost("critique_prd", "gpt-4o-mini", response, prd_text[:80])
 
     result = json.loads(response.choices[0].message.content)
-    scores = result.get("scores", {})
+    scores = _clamp_scores(result.get("scores", {}), criteria_config["criteria"])
     total_score = sum(scores.values())
     threshold = criteria_config["threshold"]
     max_score = criteria_config["max_score"]
@@ -313,7 +322,7 @@ def critique(state: AgentState) -> dict:
     _log_cost("critique", "gpt-4o-mini", response, state["feature_description"])
 
     result = json.loads(response.choices[0].message.content)
-    scores = result.get("scores", {})
+    scores = _clamp_scores(result.get("scores", {}), criteria_config["criteria"])
     total_score = sum(scores.values())
     issues = result.get("issues", [])
 
