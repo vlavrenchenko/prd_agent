@@ -29,6 +29,73 @@ def _load_criteria() -> dict:
     return json.loads(CRITERIA_PATH.read_text(encoding="utf-8"))
 
 
+def critique_prd(prd_text: str) -> dict:
+    """Оценивает готовый PRD по 8 критериям. Можно вызывать независимо от графа.
+
+    Возвращает:
+        {
+            "score": int,           # итоговый балл
+            "max_score": int,       # максимум (16)
+            "threshold": int,       # порог (11)
+            "passed": bool,
+            "issues": list[str],    # список замечаний
+            "scores": dict,         # баллы по каждому критерию
+        }
+    """
+    client = OpenAI()
+    criteria_config = _load_criteria()
+
+    criteria_text = "\n".join(
+        f"{i+1}. {c['name']} (0-{c['max']} баллов):\n"
+        + "\n".join(f"   {score}: {desc}" for score, desc in c["levels"].items())
+        for i, c in enumerate(criteria_config["criteria"])
+    )
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        response_format={"type": "json_object"},
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "Ты строгий рецензент PRD. "
+                    "Оцени документ по каждому критерию и верни результат строго в JSON. "
+                    "Будь конкретен в замечаниях — указывай какой раздел и что именно нужно исправить."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Оцени PRD по следующим критериям:\n\n{criteria_text}\n\n"
+                    f"PRD для оценки:\n{prd_text}\n\n"
+                    "Верни JSON:\n"
+                    "{\n"
+                    '  "scores": {"metrics": 0, "segment": 0, "requirements": 0, "out_of_scope": 0, '
+                    '"open_questions": 0, "no_fluff": 0, "jtbd": 0, "business_metric": 0},\n'
+                    '  "issues": ["конкретное замечание 1", "конкретное замечание 2"]\n'
+                    "}"
+                ),
+            },
+        ],
+    )
+
+    result = json.loads(response.choices[0].message.content)
+    scores = result.get("scores", {})
+    total_score = sum(scores.values())
+    threshold = criteria_config["threshold"]
+    max_score = criteria_config["max_score"]
+    issues = result.get("issues", []) if total_score < threshold else []
+
+    return {
+        "score": total_score,
+        "max_score": max_score,
+        "threshold": threshold,
+        "passed": total_score >= threshold,
+        "issues": issues,
+        "scores": scores,
+    }
+
+
 class AgentState(TypedDict):
     feature_description: str
     rag_context: list[dict]
