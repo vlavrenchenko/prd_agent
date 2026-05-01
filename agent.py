@@ -18,7 +18,7 @@ from openai import OpenAI
 
 from search import search as rag_search
 from save import save_prd
-from logger import get_cost_logger
+from logger import get_cost_logger, get_logger
 
 load_dotenv(override=True)
 
@@ -27,6 +27,7 @@ CRITERIA_PATH = Path(__file__).parent / "config" / "critique_criteria.json"
 PRICING_PATH = Path(__file__).parent / "config" / "models_pricing.json"
 
 _cost_log = get_cost_logger()
+log = get_logger("agent")
 
 
 def _load_criteria() -> dict:
@@ -137,13 +138,21 @@ def critique_prd(prd_text: str) -> dict:
     total_score = sum(scores.values())
     threshold = criteria_config["threshold"]
     max_score = criteria_config["max_score"]
-    issues = result.get("issues", []) if total_score < threshold else []
+    passed = total_score >= threshold
+    issues = result.get("issues", []) if not passed else []
+
+    log.info("critique_prd_done", extra={
+        "score": total_score,
+        "max_score": max_score,
+        "passed": passed,
+        "issues_count": len(issues),
+    })
 
     return {
         "score": total_score,
         "max_score": max_score,
         "threshold": threshold,
-        "passed": total_score >= threshold,
+        "passed": passed,
         "issues": issues,
         "scores": scores,
     }
@@ -167,7 +176,9 @@ class AgentState(TypedDict):
 
 def search_context(state: AgentState) -> dict:
     """Ищет похожие PRD в ChromaDB."""
+    log.info("search_context_start", extra={"feature": state["feature_description"]})
     results = rag_search(state["feature_description"], n=3)
+    log.info("search_context_done", extra={"results_count": len(results)})
     return {"rag_context": results}
 
 
@@ -210,10 +221,14 @@ def ask_questions(state: AgentState) -> dict:
         for q in response.choices[0].message.content.strip().splitlines()
         if q.strip()
     ]
+    log.info("ask_questions_done", extra={"questions_count": len(questions)})
 
     user_response = interrupt({"questions": questions})
 
-    if str(user_response).strip().lower() == "/skip":
+    skipped = str(user_response).strip().lower() == "/skip"
+    log.info("user_response", extra={"skipped": skipped})
+
+    if skipped:
         return {"questions": questions, "skipped": True, "answers": ""}
 
     return {"questions": questions, "skipped": False, "answers": str(user_response)}
@@ -277,7 +292,14 @@ def generate(state: AgentState) -> dict:
     )
 
     _log_cost("generate", "gpt-4o-mini", response, state["feature_description"])
-    return {"prd": response.choices[0].message.content}
+    prd = response.choices[0].message.content
+    log.info("generate_done", extra={
+        "feature": state["feature_description"],
+        "skipped": state["skipped"],
+        "retry": bool(state.get("critique_issues")),
+        "prd_len": len(prd),
+    })
+    return {"prd": prd}
 
 
 def critique(state: AgentState) -> dict:
@@ -329,6 +351,14 @@ def critique(state: AgentState) -> dict:
     threshold = criteria_config["threshold"]
     passed = total_score >= threshold
 
+    log.info("critique_done", extra={
+        "feature": state["feature_description"],
+        "score": total_score,
+        "max_score": criteria_config["max_score"],
+        "passed": passed,
+        "issues_count": len(issues),
+    })
+
     return {
         "critique_score": total_score,
         "prev_critique_score": state.get("critique_score", 0),
@@ -340,6 +370,7 @@ def critique(state: AgentState) -> dict:
 def save(state: AgentState) -> dict:
     """Сохраняет PRD в файл и индексирует в ChromaDB."""
     path = save_prd(state["prd"], state["feature_description"])
+    log.info("save_done", extra={"output_path": path})
     return {"output_path": path}
 
 

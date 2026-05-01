@@ -16,7 +16,10 @@ from langgraph.types import Command as LGCommand
 
 from agent import build_graph, AgentState, critique_prd
 from search import search as rag_search
+from logger import get_logger
 import uuid
+
+log = get_logger("bot")
 
 load_dotenv(override=True)
 
@@ -86,6 +89,7 @@ async def cmd_new(message: Message):
     thread_id = str(uuid.uuid4())
     active_sessions[chat_id] = thread_id
     config = _config(thread_id)
+    log.info("session_start", extra={"chat_id": chat_id, "description": description, "thread_id": thread_id})
 
     initial_state: AgentState = {
         "feature_description": description,
@@ -99,12 +103,19 @@ async def cmd_new(message: Message):
 
     await message.answer(f"🔍 Ищем похожие PRD для: _{description}_", parse_mode="Markdown")
 
-    await asyncio.get_event_loop().run_in_executor(
-        None, lambda: graph.invoke(initial_state, config)
-    )
+    try:
+        await asyncio.get_event_loop().run_in_executor(
+            None, lambda: graph.invoke(initial_state, config)
+        )
+    except Exception as e:
+        log.error("session_error", extra={"chat_id": chat_id, "error": str(e)}, exc_info=True)
+        await message.answer(f"❌ Ошибка: {e}")
+        active_sessions.pop(chat_id, None)
+        return
 
     questions = _get_questions(graph, config)
     if questions:
+        log.info("questions_sent", extra={"chat_id": chat_id, "questions_count": len(questions)})
         await message.answer(_format_questions(questions), parse_mode="Markdown")
     else:
         await _finish_session(message, config, chat_id)
@@ -117,6 +128,7 @@ async def cmd_skip(message: Message):
         await message.answer("Нет активной сессии. Начни с `/new <описание фичи>`.", parse_mode="Markdown")
         return
 
+    log.info("user_skip", extra={"chat_id": chat_id})
     config = _config(active_sessions[chat_id])
     await message.answer("⏭ Пропускаем вопросы, генерируем PRD...")
     await _resume_session(message, config, chat_id, "/skip")
@@ -129,17 +141,25 @@ async def cmd_search(message: Message):
         await message.answer("Напиши запрос после команды.\nПример: `/search онбординг пользователя`", parse_mode="Markdown")
         return
 
+    chat_id = message.chat.id
+    log.info("search_command", extra={"chat_id": chat_id, "query": query})
     await message.answer(f"🔍 Ищем: _{query}_...", parse_mode="Markdown")
 
-    results = await asyncio.get_event_loop().run_in_executor(
-        None, lambda: rag_search(query, n=5)
-    )
+    try:
+        results = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: rag_search(query, n=5)
+        )
+    except Exception as e:
+        log.error("search_error", extra={"chat_id": chat_id, "query": query, "error": str(e)}, exc_info=True)
+        await message.answer(f"❌ Ошибка поиска: {e}")
+        return
 
     if not results:
         await message.answer("Ничего не найдено. Попробуй другой запрос.")
         return
 
-    search_cache[message.chat.id] = results
+    log.info("search_results", extra={"chat_id": chat_id, "query": query, "results_count": len(results)})
+    search_cache[chat_id] = results
 
     lines = ["📋 *Найденные PRD:*\n"]
     for r in results:
@@ -169,11 +189,17 @@ async def cmd_critique(message: Message):
         return
 
     selected = results[idx]
+    log.info("critique_command", extra={"chat_id": chat_id, "prd_filename": selected["filename"]})
     await message.answer(f"🔎 Критикуем: `{selected['filename']}`...", parse_mode="Markdown")
 
-    critique_result = await asyncio.get_event_loop().run_in_executor(
-        None, lambda: critique_prd(selected["text"])
-    )
+    try:
+        critique_result = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: critique_prd(selected["text"])
+        )
+    except Exception as e:
+        log.error("critique_error", extra={"chat_id": chat_id, "prd_filename": selected["filename"], "error": str(e)}, exc_info=True)
+        await message.answer(f"❌ Ошибка критики: {e}")
+        return
 
     score = critique_result["score"]
     max_score = critique_result["max_score"]
@@ -224,9 +250,15 @@ async def on_message(message: Message):
 
 async def _resume_session(message: Message, config: dict, chat_id: int, user_input: str):
     """Возобновляет граф с ответом пользователя и завершает сессию."""
-    result = await asyncio.get_event_loop().run_in_executor(
-        None, lambda: graph.invoke(LGCommand(resume=user_input), config)
-    )
+    try:
+        result = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: graph.invoke(LGCommand(resume=user_input), config)
+        )
+    except Exception as e:
+        log.error("resume_error", extra={"chat_id": chat_id, "error": str(e)}, exc_info=True)
+        await message.answer(f"❌ Ошибка генерации: {e}")
+        active_sessions.pop(chat_id, None)
+        return
     await _finish_session(message, config, chat_id, result)
 
 
@@ -242,8 +274,11 @@ async def _finish_session(message: Message, config: dict, chat_id: int, result: 
     active_sessions.pop(chat_id, None)
 
     if not output_path:
+        log.error("session_no_output", extra={"chat_id": chat_id})
         await message.answer("❌ Не удалось сгенерировать PRD.")
         return
+
+    log.info("session_done", extra={"chat_id": chat_id, "output_path": output_path, "score": result.get("critique_score")})
 
     criteria_path = Path(__file__).parent / "config" / "critique_criteria.json"
     criteria_config = json.loads(criteria_path.read_text(encoding="utf-8"))

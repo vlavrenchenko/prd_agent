@@ -14,6 +14,7 @@ from pathlib import Path
 import chromadb
 from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
 from dotenv import load_dotenv
+from logger import get_logger
 
 load_dotenv(override=True)
 
@@ -23,6 +24,8 @@ COLLECTION_NAME = "prd_documents"
 EMBEDDING_MODEL = "text-embedding-3-small"
 
 # Цены на эмбеддинг-модели OpenAI ($ за 1M токенов)
+log = get_logger("search")
+
 EMBEDDING_PRICES = {
     "text-embedding-3-small": 0.02,
     "text-embedding-3-large": 0.13,
@@ -47,6 +50,7 @@ def add_prd(filepath: str | Path) -> bool:
 
     existing = collection.get(ids=[doc_id])
     if existing["ids"]:
+        log.debug("add_prd_skipped", extra={"prd_filename": path.name, "reason": "already_indexed"})
         return False
 
     text = path.read_text(encoding="utf-8")
@@ -55,6 +59,7 @@ def add_prd(filepath: str | Path) -> bool:
         documents=[text],
         metadatas=[{"filename": path.name, "source": str(path)}],
     )
+    log.info("add_prd_done", extra={"prd_filename": path.name})
     return True
 
 
@@ -66,6 +71,7 @@ def index_directory(directory: str | Path = SYNTHETIC_DIR) -> tuple[int, int]:
         print(f"  Файлов .md не найдено в {directory}")
         return 0, 0
 
+    log.info("index_start", extra={"directory": str(directory), "files_count": len(files)})
     added = skipped = 0
     for f in files:
         if add_prd(f):
@@ -74,11 +80,13 @@ def index_directory(directory: str | Path = SYNTHETIC_DIR) -> tuple[int, int]:
         else:
             skipped += 1
 
+    log.info("index_done", extra={"added": added, "skipped": skipped})
     return added, skipped
 
 
 def search(query: str, n: int = 5) -> list[dict]:
     """Ищет похожие PRD по запросу. Возвращает список результатов с текстом и метаданными."""
+    log.info("search_start", extra={"query": query, "n": n})
     collection = _get_collection()
     results = collection.query(query_texts=[query], n_results=min(n, collection.count()))
     output = []
@@ -93,6 +101,7 @@ def search(query: str, n: int = 5) -> list[dict]:
             "score": round(1 - distance, 4),
             "text": doc,
         })
+    log.info("search_done", extra={"query": query, "results_count": len(output)})
     return output
 
 

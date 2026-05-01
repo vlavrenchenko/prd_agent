@@ -5,6 +5,9 @@ import datetime
 from pathlib import Path
 
 from search import add_prd
+from logger import get_logger
+
+log = get_logger("save")
 
 OUTPUT_DIR = Path(__file__).parent / "data" / "prd_output"
 
@@ -19,6 +22,13 @@ def save_prd(content: str, feature_description: str) -> str:
     path = OUTPUT_DIR / f"{date}_{slug}.md"
 
     path.write_text(content, encoding="utf-8")
-    add_prd(path)
+    indexed = add_prd(path)
+
+    log.info("save_prd_done", extra={
+        "path": str(path),
+        "feature": feature_description,
+        "indexed": indexed,
+        "size_bytes": len(content.encode()),
+    })
 
     return str(path)
