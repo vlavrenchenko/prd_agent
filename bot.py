@@ -14,7 +14,8 @@ from aiogram.types import Message, FSInputFile
 from dotenv import load_dotenv
 from langgraph.types import Command as LGCommand
 
-from agent import build_graph, AgentState
+from agent import build_graph, AgentState, critique_prd
+from search import search as rag_search
 import uuid
 
 load_dotenv(override=True)
@@ -24,8 +25,11 @@ logging.basicConfig(level=logging.WARNING)
 dp = Dispatcher()
 graph = build_graph()
 
-# chat_id → thread_id активных сессий
+# chat_id → thread_id активных сессий генерации
 active_sessions: dict[int, str] = {}
+
+# chat_id → список результатов последнего поиска
+search_cache: dict[int, list[dict]] = {}
 
 # инициализируется в main()
 bot: Bot = None  # type: ignore
@@ -57,9 +61,16 @@ def _format_questions(questions: list[str]) -> str:
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
     await message.answer(
-        "Привет! Я помогу написать PRD.\n\n"
-        "Напиши `/new <описание фичи>` чтобы начать.\n\n"
-        "Пример:\n`/new добавить виш-лист в мобильное приложение`",
+        "Привет! Я помогу написать и оценить PRD.\n\n"
+        "*Создать PRD:*\n"
+        "`/new <описание фичи>` — запустить генерацию\n"
+        "`/skip` — пропустить уточняющие вопросы\n\n"
+        "*Поиск и критика:*\n"
+        "`/search <запрос>` — найти PRD в базе\n"
+        "`/critique <номер>` — оценить PRD из результатов поиска\n\n"
+        "Пример:\n"
+        "`/new добавить виш-лист`\n"
+        "`/search онбординг пользователя`",
         parse_mode="Markdown",
     )
 
@@ -109,6 +120,94 @@ async def cmd_skip(message: Message):
     config = _config(active_sessions[chat_id])
     await message.answer("⏭ Пропускаем вопросы, генерируем PRD...")
     await _resume_session(message, config, chat_id, "/skip")
+
+
+@dp.message(Command("search"))
+async def cmd_search(message: Message):
+    query = message.text.removeprefix("/search").strip()
+    if not query:
+        await message.answer("Напиши запрос после команды.\nПример: `/search онбординг пользователя`", parse_mode="Markdown")
+        return
+
+    await message.answer(f"🔍 Ищем: _{query}_...", parse_mode="Markdown")
+
+    results = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: rag_search(query, n=5)
+    )
+
+    if not results:
+        await message.answer("Ничего не найдено. Попробуй другой запрос.")
+        return
+
+    search_cache[message.chat.id] = results
+
+    lines = ["📋 *Найденные PRD:*\n"]
+    for r in results:
+        lines.append(f"{r['rank']}. `{r['filename']}`  (релевантность: {r['score']})")
+    lines.append("\nЧтобы покритиковать — напиши `/critique <номер>`")
+    await message.answer("\n".join(lines), parse_mode="Markdown")
+
+
+@dp.message(Command("critique"))
+async def cmd_critique(message: Message):
+    chat_id = message.chat.id
+    arg = message.text.removeprefix("/critique").strip()
+
+    if not arg.isdigit():
+        await message.answer("Напиши номер PRD из последнего поиска.\nПример: `/critique 1`", parse_mode="Markdown")
+        return
+
+    idx = int(arg) - 1
+    results = search_cache.get(chat_id, [])
+
+    if not results:
+        await message.answer("Сначала выполни поиск: `/search <запрос>`", parse_mode="Markdown")
+        return
+
+    if idx < 0 or idx >= len(results):
+        await message.answer(f"Номер должен быть от 1 до {len(results)}.")
+        return
+
+    selected = results[idx]
+    await message.answer(f"🔎 Критикуем: `{selected['filename']}`...", parse_mode="Markdown")
+
+    critique_result = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: critique_prd(selected["text"])
+    )
+
+    score = critique_result["score"]
+    max_score = critique_result["max_score"]
+    threshold = critique_result["threshold"]
+    passed = critique_result["passed"]
+    issues = critique_result["issues"]
+    scores = critique_result["scores"]
+
+    criteria_labels = {
+        "metrics": "Метрики измеримы",
+        "segment": "Сегмент пользователей",
+        "requirements": "Функц. требования",
+        "out_of_scope": "Out of scope",
+        "open_questions": "Открытые вопросы",
+        "no_fluff": "Отсутствие воды",
+        "jtbd": "JTBD описан",
+        "business_metric": "Бизнес-метрика",
+    }
+
+    score_lines = [f"📊 *Оценка PRD: {score}/{max_score}* (порог: {threshold})\n"]
+    score_lines.append("*Детали:*")
+    for key, label in criteria_labels.items():
+        val = scores.get(key, 0)
+        emoji = "✅" if val == 2 else "⚠️" if val == 1 else "❌"
+        score_lines.append(f"{emoji} {label}: {val}/2")
+
+    if passed:
+        score_lines.append("\n✅ PRD прошёл проверку качества")
+    else:
+        score_lines.append("\n*Замечания:*")
+        for issue in issues:
+            score_lines.append(f"• {issue}")
+
+    await message.answer("\n".join(score_lines), parse_mode="Markdown")
 
 
 @dp.message(F.text & ~F.text.startswith("/"))
