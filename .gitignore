@@ -1,6 +1,7 @@
 .env
 BACKLOG.md
 BRAINSTORM*.md
+logs/
 .venv/
 __pycache__/
 *.pyc

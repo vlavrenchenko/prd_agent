@@ -18,15 +18,58 @@ from openai import OpenAI
 
 from search import search as rag_search
 from save import save_prd
+from logger import get_cost_logger
 
 load_dotenv(override=True)
 
 TEMPLATE_PATH = Path(__file__).parent / "config" / "prd_template.md"
 CRITERIA_PATH = Path(__file__).parent / "config" / "critique_criteria.json"
+PRICING_PATH = Path(__file__).parent / "config" / "models_pricing.json"
+
+_cost_log = get_cost_logger()
 
 
 def _load_criteria() -> dict:
     return json.loads(CRITERIA_PATH.read_text(encoding="utf-8"))
+
+
+def _load_prices() -> dict:
+    if not PRICING_PATH.exists():
+        return {}
+    raw = json.loads(PRICING_PATH.read_text())
+    prices = {}
+    for model_id, model_data in raw.get("models", {}).items():
+        standard = model_data.get("pricing", {}).get("standard", {})
+        if "input" in standard:
+            prices[model_id] = {"input": standard["input"], "output": standard["output"]}
+        elif "short_context" in standard:
+            prices[model_id] = {
+                "input": standard["short_context"]["input"],
+                "output": standard["short_context"]["output"],
+            }
+    return prices
+
+
+_MODEL_PRICES = _load_prices()
+
+
+def _log_cost(operation: str, model: str, response, context: str = "") -> None:
+    usage = response.usage
+    inp, out = usage.prompt_tokens, usage.completion_tokens
+    prices = _MODEL_PRICES.get(model)
+    cost = (inp * prices["input"] + out * prices["output"]) / 1_000_000 if prices else None
+    _cost_log.info(
+        "llm_call",
+        extra={
+            "operation": operation,
+            "model": model,
+            "input_tokens": inp,
+            "output_tokens": out,
+            "total_tokens": inp + out,
+            "cost_usd": round(cost, 6) if cost is not None else None,
+            "question_preview": context[:80],
+        },
+    )
 
 
 def critique_prd(prd_text: str) -> dict:
@@ -78,6 +121,7 @@ def critique_prd(prd_text: str) -> dict:
             },
         ],
     )
+    _log_cost("critique_prd", "gpt-4o-mini", response, prd_text[:80])
 
     result = json.loads(response.choices[0].message.content)
     scores = result.get("scores", {})
@@ -150,6 +194,8 @@ def ask_questions(state: AgentState) -> dict:
         ],
     )
 
+    _log_cost("ask_questions", "gpt-4o-mini", response, state["feature_description"])
+
     questions = [
         q.strip()
         for q in response.choices[0].message.content.strip().splitlines()
@@ -221,6 +267,7 @@ def generate(state: AgentState) -> dict:
         ],
     )
 
+    _log_cost("generate", "gpt-4o-mini", response, state["feature_description"])
     return {"prd": response.choices[0].message.content}
 
 
@@ -262,6 +309,8 @@ def critique(state: AgentState) -> dict:
             },
         ],
     )
+
+    _log_cost("critique", "gpt-4o-mini", response, state["feature_description"])
 
     result = json.loads(response.choices[0].message.content)
     scores = result.get("scores", {})

@@ -13,6 +13,7 @@ import datetime
 from pathlib import Path
 from openai import OpenAI
 from dotenv import load_dotenv
+from logger import get_cost_logger
 
 load_dotenv(override=True)
 
@@ -120,6 +121,7 @@ def load_model_prices() -> dict:
 
 
 MODEL_PRICES = load_model_prices()
+_cost_log = get_cost_logger()
 
 
 def build_user_prompt(domain: str, feature: str) -> str:
@@ -175,6 +177,20 @@ def generate_one(client: OpenAI, domain: str, feature: str, model: str) -> tuple
         "input": response.usage.prompt_tokens,
         "output": response.usage.completion_tokens,
     }
+    prices = MODEL_PRICES.get(model)
+    cost = (usage["input"] * prices["input"] + usage["output"] * prices["output"]) / 1_000_000 if prices else None
+    _cost_log.info(
+        "llm_call",
+        extra={
+            "operation": "generate_synthetic",
+            "model": model,
+            "input_tokens": usage["input"],
+            "output_tokens": usage["output"],
+            "total_tokens": usage["input"] + usage["output"],
+            "cost_usd": round(cost, 6) if cost is not None else None,
+            "question_preview": f"{domain}/{feature}",
+        },
+    )
     return response.choices[0].message.content, usage
 
 
