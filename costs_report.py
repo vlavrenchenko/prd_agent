@@ -71,18 +71,24 @@ def main():
         print(f"{'='*55}\n")
         return
 
-    total_cost = sum(r.get("cost_usd") or 0 for r in records)
-    total_tokens = sum(r.get("total_tokens") or 0 for r in records)
-    total_input = sum(r.get("input_tokens") or 0 for r in records)
-    total_output = sum(r.get("output_tokens") or 0 for r in records)
+    def _f(val) -> float:
+        try:
+            return float(val) if val is not None else 0.0
+        except (ValueError, TypeError):
+            return 0.0
+
+    total_cost = sum(_f(r.get("cost_usd")) for r in records)
+    total_tokens = sum(int(_f(r.get("total_tokens"))) for r in records)
+    total_input = sum(int(_f(r.get("input_tokens"))) for r in records)
+    total_output = sum(int(_f(r.get("output_tokens"))) for r in records)
 
     by_model: dict[str, dict] = {}
     for r in records:
         m = r.get("model", "unknown")
         if m not in by_model:
-            by_model[m] = {"cost": 0, "tokens": 0, "calls": 0}
-        by_model[m]["cost"] += r.get("cost_usd") or 0
-        by_model[m]["tokens"] += r.get("total_tokens") or 0
+            by_model[m] = {"cost": 0.0, "tokens": 0, "calls": 0}
+        by_model[m]["cost"] += _f(r.get("cost_usd"))
+        by_model[m]["tokens"] += int(_f(r.get("total_tokens")))
         by_model[m]["calls"] += 1
 
     print(f"  Запросов:       {len(records)}")
@@ -100,8 +106,8 @@ def main():
         for r in records:
             ts = r.get("ts", "")[:16]
             model = r.get("model", "")[:14]
-            cost = r.get("cost_usd") or 0
-            tokens = r.get("total_tokens") or 0
+            cost = _f(r.get("cost_usd"))
+            tokens = int(_f(r.get("total_tokens")))
             question = r.get("question_preview", "")[:40]
             print(f"  {ts:<20} {model:<15} ${cost:>7.4f}  {tokens:>7,}  {question}")
 
