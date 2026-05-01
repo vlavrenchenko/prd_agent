@@ -132,7 +132,10 @@ async def _resume_session(message: Message, config: dict, chat_id: int, user_inp
 
 
 async def _finish_session(message: Message, config: dict, chat_id: int, result: dict = None):
-    """Отправляет готовый PRD и закрывает сессию."""
+    """Отправляет готовый PRD с оценкой критика и закрывает сессию."""
+    import json
+    from pathlib import Path
+
     if result is None:
         result = graph.get_state(config).values
 
@@ -143,7 +146,22 @@ async def _finish_session(message: Message, config: dict, chat_id: int, result: 
         await message.answer("❌ Не удалось сгенерировать PRD.")
         return
 
-    await message.answer("✅ PRD готов!")
+    criteria_path = Path(__file__).parent / "config" / "critique_criteria.json"
+    criteria_config = json.loads(criteria_path.read_text(encoding="utf-8"))
+    max_score = criteria_config["max_score"]
+    threshold = criteria_config["threshold"]
+
+    score = result.get("critique_score", 0)
+    passed = result.get("critique_passed", False)
+    issues = result.get("critique_issues", [])
+
+    if passed:
+        quality_text = f"📊 Оценка PRD: *{score}/{max_score}* ✅"
+    else:
+        quality_text = f"📊 Оценка PRD: *{score}/{max_score}* (порог: {threshold})\n⚠️ Замечания:\n"
+        quality_text += "\n".join(f"• {issue}" for issue in issues)
+
+    await message.answer(quality_text, parse_mode="Markdown")
     await message.answer_document(
         FSInputFile(output_path),
         caption="Готовый PRD в формате Markdown",
