@@ -130,6 +130,39 @@ def test_critique_fails_when_score_below_threshold():
     assert len(result["critique_issues"]) == 3
 
 
+def test_critique_clamps_scores_above_max():
+    """Баллы выше максимума по критерию обрезаются до 2."""
+    import agent
+    reload(agent)
+    mock_client = MagicMock()
+    # LLM вернул 6 по критерию с максимумом 2
+    overflowed_scores = {k: 6 for k in ["metrics", "segment", "requirements", "out_of_scope",
+                                         "open_questions", "no_fluff", "jtbd", "business_metric"]}
+    mock_client.chat.completions.create.return_value = make_critique_response(overflowed_scores, [])
+
+    with patch("agent.OpenAI", return_value=mock_client):
+        result = agent.critique(base_state(prd="# PRD"))
+
+    assert result["critique_score"] == 16  # 8 критериев × 2 макс = 16
+    assert result["critique_passed"] is True
+
+
+def test_critique_prd_clamps_scores():
+    """critique_prd тоже обрезает баллы."""
+    import agent
+    reload(agent)
+    mock_client = MagicMock()
+    overflowed_scores = {k: 5 for k in ["metrics", "segment", "requirements", "out_of_scope",
+                                         "open_questions", "no_fluff", "jtbd", "business_metric"]}
+    mock_client.chat.completions.create.return_value = make_critique_response(overflowed_scores, [])
+
+    with patch("agent.OpenAI", return_value=mock_client):
+        result = agent.critique_prd("# PRD текст")
+
+    assert result["score"] == 16
+    assert result["max_score"] == 16
+
+
 def test_critique_saves_prev_score():
     import agent
     reload(agent)
