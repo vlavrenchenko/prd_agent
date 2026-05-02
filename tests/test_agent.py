@@ -11,9 +11,15 @@ def make_llm_response(content: str):
     return response
 
 
-def make_critique_response(scores: dict, issues: list):
+def make_critique_response(scores: dict, issues: list, explanations: dict = None):
     import json
-    return make_llm_response(json.dumps({"scores": scores, "issues": issues}))
+    if explanations is None:
+        explanations = {k: f"Объяснение для {k}" for k in scores}
+    return make_llm_response(json.dumps({
+        "scores": scores,
+        "explanations": explanations,
+        "issues": issues,
+    }))
 
 
 def base_state(**overrides) -> dict:
@@ -175,6 +181,42 @@ def test_critique_saves_prev_score():
         result = agent.critique(base_state(prd="# PRD", critique_score=5))
 
     assert result["prev_critique_score"] == 5
+
+
+def test_critique_prd_returns_explanations():
+    """critique_prd возвращает explanations для всех 8 критериев."""
+    import agent
+    reload(agent)
+    mock_client = MagicMock()
+    scores = {k: 1 for k in ["metrics", "segment", "requirements", "out_of_scope",
+                               "open_questions", "no_fluff", "jtbd", "business_metric"]}
+    explanations = {k: f"Объяснение для {k}" for k in scores}
+    mock_client.chat.completions.create.return_value = make_critique_response(scores, [], explanations)
+
+    with patch("agent.OpenAI", return_value=mock_client):
+        result = agent.critique_prd("# PRD текст")
+
+    assert "explanations" in result
+    assert len(result["explanations"]) == 8
+    assert result["explanations"]["segment"] == "Объяснение для segment"
+
+
+def test_critique_prd_returns_explanations_when_passed():
+    """explanations возвращаются даже если PRD прошёл порог."""
+    import agent
+    reload(agent)
+    mock_client = MagicMock()
+    high_scores = {k: 2 for k in ["metrics", "segment", "requirements", "out_of_scope",
+                                    "open_questions", "no_fluff", "jtbd", "business_metric"]}
+    explanations = {k: f"Отлично: {k}" for k in high_scores}
+    mock_client.chat.completions.create.return_value = make_critique_response(high_scores, [], explanations)
+
+    with patch("agent.OpenAI", return_value=mock_client):
+        result = agent.critique_prd("# Отличный PRD")
+
+    assert result["passed"] is True
+    assert "explanations" in result
+    assert len(result["explanations"]) == 8
 
 
 # --- route_after_critique ---
