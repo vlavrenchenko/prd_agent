@@ -111,7 +111,7 @@ def test_critique_passed_when_score_above_threshold():
                                     "open_questions", "no_fluff", "jtbd", "business_metric"]}
     mock_client.chat.completions.create.return_value = make_critique_response(high_scores, [])
 
-    with patch("agent.OpenAI", return_value=mock_client):
+    with patch("critique.core.OpenAI", return_value=mock_client):
         result = agent.critique(base_state(prd="# PRD"))
 
     assert result["critique_passed"] is True
@@ -128,7 +128,7 @@ def test_critique_fails_when_score_below_threshold():
     issues = ["Нет JTBD", "Метрики расплывчатые", "Out of scope пустой"]
     mock_client.chat.completions.create.return_value = make_critique_response(low_scores, issues)
 
-    with patch("agent.OpenAI", return_value=mock_client):
+    with patch("critique.core.OpenAI", return_value=mock_client):
         result = agent.critique(base_state(prd="# Плохой PRD"))
 
     assert result["critique_passed"] is False
@@ -146,7 +146,7 @@ def test_critique_clamps_scores_above_max():
                                          "open_questions", "no_fluff", "jtbd", "business_metric"]}
     mock_client.chat.completions.create.return_value = make_critique_response(overflowed_scores, [])
 
-    with patch("agent.OpenAI", return_value=mock_client):
+    with patch("critique.core.OpenAI", return_value=mock_client):
         result = agent.critique(base_state(prd="# PRD"))
 
     assert result["critique_score"] == 16  # 8 критериев × 2 макс = 16
@@ -162,7 +162,7 @@ def test_critique_prd_clamps_scores():
                                          "open_questions", "no_fluff", "jtbd", "business_metric"]}
     mock_client.chat.completions.create.return_value = make_critique_response(overflowed_scores, [])
 
-    with patch("agent.OpenAI", return_value=mock_client):
+    with patch("critique.core.OpenAI", return_value=mock_client):
         result = agent.critique_prd("# PRD текст")
 
     assert result["score"] == 16
@@ -177,7 +177,7 @@ def test_critique_saves_prev_score():
                                "open_questions", "no_fluff", "jtbd", "business_metric"]}
     mock_client.chat.completions.create.return_value = make_critique_response(scores, ["замечание"])
 
-    with patch("agent.OpenAI", return_value=mock_client):
+    with patch("critique.core.OpenAI", return_value=mock_client):
         result = agent.critique(base_state(prd="# PRD", critique_score=5))
 
     assert result["prev_critique_score"] == 5
@@ -193,7 +193,7 @@ def test_critique_prd_returns_explanations():
     explanations = {k: f"Объяснение для {k}" for k in scores}
     mock_client.chat.completions.create.return_value = make_critique_response(scores, [], explanations)
 
-    with patch("agent.OpenAI", return_value=mock_client):
+    with patch("critique.core.OpenAI", return_value=mock_client):
         result = agent.critique_prd("# PRD текст")
 
     assert "explanations" in result
@@ -211,7 +211,7 @@ def test_critique_prd_returns_explanations_when_passed():
     explanations = {k: f"Отлично: {k}" for k in high_scores}
     mock_client.chat.completions.create.return_value = make_critique_response(high_scores, [], explanations)
 
-    with patch("agent.OpenAI", return_value=mock_client):
+    with patch("critique.core.OpenAI", return_value=mock_client):
         result = agent.critique_prd("# Отличный PRD")
 
     assert result["passed"] is True
@@ -290,6 +290,7 @@ def test_full_graph_skip(tmp_path):
 
     with patch("agent.rag_search", return_value=[]), \
          patch("agent.OpenAI", return_value=mock_client), \
+         patch("critique.core.OpenAI", return_value=mock_client), \
          patch("agent.save_prd", return_value=fake_path):
 
         graph = agent.build_graph()

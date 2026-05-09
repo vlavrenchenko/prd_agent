@@ -4,7 +4,6 @@ LangGraph агент для генерации PRD с критиком.
 Запуск:
     python agent.py "добавить виш-лист в мобильное приложение"
 """
-import json
 import sys
 import uuid
 from pathlib import Path
@@ -18,170 +17,15 @@ from openai import OpenAI
 
 from search import search as rag_search
 from save import save_prd
-from logger import get_cost_logger, get_logger
+from logger import get_logger
+from llm_utils import log_cost
+from critique import critique_prd, critique, load_criteria  # noqa: F401 (critique re-exported for graph)
 
 load_dotenv(override=True)
 
 TEMPLATE_PATH = Path(__file__).parent / "config" / "prd_template.md"
-CRITERIA_PATH = Path(__file__).parent / "config" / "critique_criteria.json"
-PRICING_PATH = Path(__file__).parent / "config" / "models_pricing.json"
 
-_cost_log = get_cost_logger()
 log = get_logger("agent")
-
-
-def _load_criteria() -> dict:
-    return json.loads(CRITERIA_PATH.read_text(encoding="utf-8"))
-
-
-def _clamp_scores(scores: dict, criteria: list) -> dict:
-    """Обрезает баллы до максимума по каждому критерию."""
-    max_per_criterion = {c["id"]: c["max"] for c in criteria}
-    return {
-        key: min(int(val), max_per_criterion.get(key, val))
-        for key, val in scores.items()
-    }
-
-
-def _load_prices() -> dict:
-    if not PRICING_PATH.exists():
-        return {}
-    raw = json.loads(PRICING_PATH.read_text())
-    prices = {}
-    for model_id, model_data in raw.get("models", {}).items():
-        standard = model_data.get("pricing", {}).get("standard", {})
-        if "input" in standard:
-            prices[model_id] = {"input": standard["input"], "output": standard["output"]}
-        elif "short_context" in standard:
-            prices[model_id] = {
-                "input": standard["short_context"]["input"],
-                "output": standard["short_context"]["output"],
-            }
-    return prices
-
-
-_MODEL_PRICES = _load_prices()
-
-
-def _log_cost(operation: str, model: str, response, context: str = "") -> None:
-    usage = response.usage
-    inp, out = usage.prompt_tokens, usage.completion_tokens
-    prices = _MODEL_PRICES.get(model)
-    cost = (inp * prices["input"] + out * prices["output"]) / 1_000_000 if prices else None
-    _cost_log.info(
-        "llm_call",
-        extra={
-            "operation": operation,
-            "model": model,
-            "input_tokens": inp,
-            "output_tokens": out,
-            "total_tokens": inp + out,
-            "cost_usd": round(cost, 6) if cost is not None else None,
-            "question_preview": context[:80],
-        },
-    )
-
-
-_CRITIQUE_SYSTEM_PROMPT = (
-    "Ты рецензент PRD в продуктовой команде. "
-    "Оцени документ по каждому критерию и дай конкретный actionable feedback. "
-    "Для каждого критерия объясни почему поставил именно эту оценку — что есть и чего не хватает. "
-    "Верни результат строго в JSON."
-)
-
-_CRITIQUE_JSON_SCHEMA = (
-    "{\n"
-    '  "scores": {"metrics": 0, "segment": 0, "requirements": 0, "out_of_scope": 0, '
-    '"open_questions": 0, "no_fluff": 0, "jtbd": 0, "business_metric": 0},\n'
-    '  "explanations": {\n'
-    '    "metrics": "почему поставил эту оценку",\n'
-    '    "segment": "почему поставил эту оценку",\n'
-    '    "requirements": "почему поставил эту оценку",\n'
-    '    "out_of_scope": "почему поставил эту оценку",\n'
-    '    "open_questions": "почему поставил эту оценку",\n'
-    '    "no_fluff": "почему поставил эту оценку",\n'
-    '    "jtbd": "почему поставил эту оценку",\n'
-    '    "business_metric": "почему поставил эту оценку"\n'
-    '  },\n'
-    '  "issues": ["конкретное замечание для улучшения 1", "замечание 2"]\n'
-    "}"
-)
-
-
-def _run_critique_llm(client: OpenAI, prd_text: str, criteria_config: dict, operation: str) -> dict:
-    """Общий LLM-вызов для критики PRD. Возвращает распарсенный результат."""
-    criteria_text = "\n".join(
-        f"{i+1}. {c['name']} (0-{c['max']} баллов):\n"
-        + "\n".join(f"   {score}: {desc}" for score, desc in c["levels"].items())
-        for i, c in enumerate(criteria_config["criteria"])
-    )
-
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": _CRITIQUE_SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": (
-                    f"Оцени PRD по следующим критериям:\n\n{criteria_text}\n\n"
-                    f"PRD для оценки:\n{prd_text}\n\n"
-                    f"Верни JSON:\n{_CRITIQUE_JSON_SCHEMA}"
-                ),
-            },
-        ],
-    )
-    _log_cost(operation, "gpt-4o-mini", response, prd_text[:80])
-
-    result = json.loads(response.choices[0].message.content)
-    scores = _clamp_scores(result.get("scores", {}), criteria_config["criteria"])
-    return {
-        "scores": scores,
-        "explanations": result.get("explanations", {}),
-        "issues": result.get("issues", []),
-        "total_score": sum(scores.values()),
-    }
-
-
-def critique_prd(prd_text: str) -> dict:
-    """Оценивает готовый PRD по 8 критериям. Можно вызывать независимо от графа.
-
-    Возвращает:
-        {
-            "score": int,
-            "max_score": int,
-            "threshold": int,
-            "passed": bool,
-            "issues": list[str],
-            "scores": dict,
-            "explanations": dict,   # объяснение по каждому критерию
-        }
-    """
-    client = OpenAI()
-    criteria_config = _load_criteria()
-
-    parsed = _run_critique_llm(client, prd_text, criteria_config, "critique_prd")
-    total_score = parsed["total_score"]
-    threshold = criteria_config["threshold"]
-    max_score = criteria_config["max_score"]
-    passed = total_score >= threshold
-
-    log.info("critique_prd_done", extra={
-        "score": total_score,
-        "max_score": max_score,
-        "passed": passed,
-        "issues_count": len(parsed["issues"]),
-    })
-
-    return {
-        "score": total_score,
-        "max_score": max_score,
-        "threshold": threshold,
-        "passed": passed,
-        "issues": parsed["issues"],
-        "scores": parsed["scores"],
-        "explanations": parsed["explanations"],
-    }
 
 
 class AgentState(TypedDict):
@@ -240,7 +84,7 @@ def ask_questions(state: AgentState) -> dict:
         ],
     )
 
-    _log_cost("ask_questions", "gpt-4o-mini", response, state["feature_description"])
+    log_cost("ask_questions", "gpt-4o-mini", response, state["feature_description"])
 
     questions = [
         q.strip()
@@ -317,7 +161,7 @@ def generate(state: AgentState) -> dict:
         ],
     )
 
-    _log_cost("generate", "gpt-4o-mini", response, state["feature_description"])
+    log_cost("generate", "gpt-4o-mini", response, state["feature_description"])
     prd = response.choices[0].message.content
     log.info("generate_done", extra={
         "feature": state["feature_description"],
@@ -326,32 +170,6 @@ def generate(state: AgentState) -> dict:
         "prd_len": len(prd),
     })
     return {"prd": prd}
-
-
-def critique(state: AgentState) -> dict:
-    """Оценивает качество PRD по 8 критериям и возвращает замечания."""
-    client = OpenAI()
-    criteria_config = _load_criteria()
-
-    parsed = _run_critique_llm(client, state["prd"], criteria_config, "critique")
-    total_score = parsed["total_score"]
-    threshold = criteria_config["threshold"]
-    passed = total_score >= threshold
-
-    log.info("critique_done", extra={
-        "feature": state["feature_description"],
-        "score": total_score,
-        "max_score": criteria_config["max_score"],
-        "passed": passed,
-        "issues_count": len(parsed["issues"]),
-    })
-
-    return {
-        "critique_score": total_score,
-        "prev_critique_score": state.get("critique_score", 0),
-        "critique_issues": parsed["issues"] if not passed else [],
-        "critique_passed": passed,
-    }
 
 
 def save(state: AgentState) -> dict:
@@ -417,7 +235,7 @@ def run_cli(description: str):
         "critique_passed": False,
     }
 
-    criteria_config = _load_criteria()
+    criteria_config = load_criteria()
     print(f'\n🔍 Ищем похожие PRD для: "{description}"\n')
 
     graph.invoke(initial_state, config=config)
