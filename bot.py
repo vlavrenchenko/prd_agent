@@ -242,6 +242,14 @@ async def cmd_critique(message: Message):
     await message.answer("\n".join(score_lines), parse_mode="Markdown")
 
 
+@dp.message(F.text.startswith("/"))
+async def cmd_unknown(message: Message):
+    await message.answer(
+        "Неизвестная команда. Доступные: `/new`, `/search`, `/critique`, `/skip`",
+        parse_mode="Markdown",
+    )
+
+
 @dp.message(F.text & ~F.text.startswith("/"))
 async def on_message(message: Message):
     chat_id = message.chat.id
