@@ -14,7 +14,15 @@ from aiogram.types import Message, FSInputFile
 from dotenv import load_dotenv
 from langgraph.types import Command as LGCommand
 
-from agent import build_graph, AgentState, critique_prd
+from agent import build_graph, AgentState
+from critique import critique_prd, load_criteria
+from critique.formatter import (
+    detect_criterion,
+    format_explanation,
+    format_all_non_perfect,
+    CRITERION_NAMES,
+    CRITERION_ORDER,
+)
 from search import search as rag_search
 from logger import get_logger
 import uuid
@@ -33,6 +41,9 @@ active_sessions: dict[int, str] = {}
 
 # chat_id → список результатов последнего поиска
 search_cache: dict[int, list[dict]] = {}
+
+# chat_id → последний результат critique_prd (scores + explanations)
+critique_cache: dict[int, dict] = {}
 
 # инициализируется в main()
 bot: Bot = None  # type: ignore
@@ -71,6 +82,10 @@ async def cmd_start(message: Message):
         "*Поиск и критика:*\n"
         "`/search <запрос>` — найти PRD в базе\n"
         "`/critique <номер>` — оценить PRD из результатов поиска\n\n"
+        "*После `/critique` можно уточнить:*\n"
+        "• `почему метрики получили 1?` — объяснение по критерию\n"
+        "• `расскажи про критерий 3` — по номеру\n"
+        "• любой другой вопрос — объяснения по всем слабым критериям\n\n"
         "Пример:\n"
         "`/new добавить виш-лист`\n"
         "`/search онбординг пользователя`",
@@ -201,6 +216,8 @@ async def cmd_critique(message: Message):
         await message.answer(f"❌ Ошибка критики: {e}")
         return
 
+    critique_cache[chat_id] = critique_result
+
     score = critique_result["score"]
     max_score = critique_result["max_score"]
     threshold = critique_result["threshold"]
@@ -208,20 +225,9 @@ async def cmd_critique(message: Message):
     issues = critique_result["issues"]
     scores = critique_result["scores"]
 
-    criteria_labels = {
-        "metrics": "Метрики измеримы",
-        "segment": "Сегмент пользователей",
-        "requirements": "Функц. требования",
-        "out_of_scope": "Out of scope",
-        "open_questions": "Открытые вопросы",
-        "no_fluff": "Отсутствие воды",
-        "jtbd": "JTBD описан",
-        "business_metric": "Бизнес-метрика",
-    }
-
     score_lines = [f"📊 *Оценка PRD: {score}/{max_score}* (порог: {threshold})\n"]
     score_lines.append("*Детали:*")
-    for key, label in criteria_labels.items():
+    for key, label in CRITERION_NAMES.items():
         val = scores.get(key, 0)
         emoji = "✅" if val == 2 else "⚠️" if val == 1 else "❌"
         score_lines.append(f"{emoji} {label}: {val}/2")
@@ -236,16 +242,39 @@ async def cmd_critique(message: Message):
     await message.answer("\n".join(score_lines), parse_mode="Markdown")
 
 
+@dp.message(F.text.startswith("/"))
+async def cmd_unknown(message: Message):
+    await message.answer(
+        "Неизвестная команда. Доступные: `/new`, `/search`, `/critique`, `/skip`",
+        parse_mode="Markdown",
+    )
+
+
 @dp.message(F.text & ~F.text.startswith("/"))
 async def on_message(message: Message):
     chat_id = message.chat.id
-    if chat_id not in active_sessions:
-        await message.answer("Начни с `/new <описание фичи>`.", parse_mode="Markdown")
+    text = message.text or ""
+
+    # Если есть активная сессия генерации — это ответ на вопросы агента
+    if chat_id in active_sessions:
+        config = _config(active_sessions[chat_id])
+        await message.answer("✍️ Генерируем PRD...")
+        await _resume_session(message, config, chat_id, text)
         return
 
-    config = _config(active_sessions[chat_id])
-    await message.answer("✍️ Генерируем PRD...")
-    await _resume_session(message, config, chat_id, message.text)
+    # Если есть кэш критики — пользователь спрашивает про конкретный критерий
+    if chat_id in critique_cache:
+        criterion_id = detect_criterion(text)
+        cached = critique_cache[chat_id]
+        if criterion_id:
+            log.info("explain_criterion", extra={"chat_id": chat_id, "criterion": criterion_id})
+            await message.answer(format_explanation(criterion_id, cached), parse_mode="Markdown")
+        else:
+            log.info("explain_all", extra={"chat_id": chat_id})
+            await message.answer(format_all_non_perfect(cached), parse_mode="Markdown")
+        return
+
+    await message.answer("Начни с `/new <описание фичи>` или найди PRD через `/search <запрос>`.", parse_mode="Markdown")
 
 
 async def _resume_session(message: Message, config: dict, chat_id: int, user_input: str):
@@ -264,9 +293,6 @@ async def _resume_session(message: Message, config: dict, chat_id: int, user_inp
 
 async def _finish_session(message: Message, config: dict, chat_id: int, result: dict = None):
     """Отправляет готовый PRD с оценкой критика и закрывает сессию."""
-    import json
-    from pathlib import Path
-
     if result is None:
         result = graph.get_state(config).values
 
@@ -280,8 +306,7 @@ async def _finish_session(message: Message, config: dict, chat_id: int, result: 
 
     log.info("session_done", extra={"chat_id": chat_id, "output_path": output_path, "score": result.get("critique_score")})
 
-    criteria_path = Path(__file__).parent / "config" / "critique_criteria.json"
-    criteria_config = json.loads(criteria_path.read_text(encoding="utf-8"))
+    criteria_config = load_criteria()
     max_score = criteria_config["max_score"]
     threshold = criteria_config["threshold"]
 
